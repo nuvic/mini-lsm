@@ -1,3 +1,3 @@
 # mini-lsm-starter
 
-Starter code for Mini-LSM.
+This WIP project is my implementation of skyzh's [mini-lsm course](https://github.com/skyzh/mini-lsm).
