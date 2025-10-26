@@ -299,11 +299,26 @@ impl LsmStorageInner {
     /// Get a key from the storage. In day 7, this can be further optimized by using a bloom filter.
     pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         let guard = self.state.read();
-        match guard.memtable.get(key) {
-            Some(content) if content.is_empty() => Ok(None),
-            Some(content) => Ok(Some(content.clone())),
-            None => Ok(None),
+
+        // Check current memtable
+        if let Some(value) = guard.memtable.get(key) {
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(value.clone()));
         }
+
+        // Check immutable memtables (from latest to earliest)
+        for imm_memtable in &guard.imm_memtables {
+            if let Some(value) = imm_memtable.get(key) {
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(value.clone()));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Write a batch of data into the storage. Implement in week 2 day 7.
@@ -357,17 +372,17 @@ impl LsmStorageInner {
 
     /// Force freeze the current memtable to an immutable memtable
     pub fn force_freeze_memtable(&self, _state_lock_observer: &MutexGuard<'_, ()>) -> Result<()> {
-        let state = self.state.read().as_ref().clone();
+        let old_state = self.state.read().as_ref().clone();
         let new_state = LsmStorageState {
             memtable: Arc::new(MemTable::create(self.next_sst_id())),
             imm_memtables: {
-                let mut imm_memtable = vec![self.state.read().memtable.clone()];
-                imm_memtable.extend(state.imm_memtables);
+                let mut imm_memtable = vec![old_state.memtable.clone()];
+                imm_memtable.extend(old_state.imm_memtables);
                 imm_memtable
             },
-            l0_sstables: state.l0_sstables,
-            levels: state.levels,
-            sstables: state.sstables,
+            l0_sstables: old_state.l0_sstables,
+            levels: old_state.levels,
+            sstables: old_state.sstables,
         };
 
         *self.state.write() = Arc::new(new_state);
