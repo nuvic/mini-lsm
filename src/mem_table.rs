@@ -18,7 +18,7 @@
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -101,8 +101,15 @@ impl MemTable {
     /// In week 2, day 6, also flush the data to WAL.
     /// In week 3, day 5, modify the function to use the batch API.
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.map
-            .insert(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
+        let key_bytes = Bytes::copy_from_slice(key);
+        let value_bytes = Bytes::copy_from_slice(value);
+
+        // If a key already exists, we are still counting it
+        // as part of approximate_size (as per task 1.3 instructions)
+        self.approximate_size
+            .fetch_add(key_bytes.len() + value_bytes.len(), Ordering::Relaxed);
+
+        self.map.insert(key_bytes, value_bytes);
         Ok(())
     }
 
